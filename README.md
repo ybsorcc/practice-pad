@@ -27,7 +27,7 @@ It never replaces the game. It doesn't check answers, fetch puzzles, or use any 
 
 ## Installing
 
-- **Galaxy S20 (Chrome):** open the URL, then choose **⋮ → Add to Home screen → Install**. After that, *Practice Pad* shows up in the Gallery's **Share** sheet.
+- **Galaxy S24 (Chrome):** open the URL, then choose **⋮ → Add to Home screen → Install**. After that, *Practice Pad* shows up in the Gallery's **Share** sheet.
 - **iPad (Safari):** open the URL, then choose **Share → Add to Home Screen**. iPadOS doesn't let web apps receive shares, so use **Load screenshot** in the app instead.
 - Open the app once while online, then load one screenshot so the reader downloads (about 7 MB, one time only). After that it works in airplane mode.
 
