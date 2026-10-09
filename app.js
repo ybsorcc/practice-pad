@@ -317,9 +317,10 @@
     try {
       const r = await window.PPOCR.read(blob, m => { reading = m; const el = $("#rmsg"); if (el) el.textContent = m; });
       words = r.words;
-      if (r.method === "fallback") note = "Couldn't find the tile grid, so the whole screenshot was read. Check the words carefully.";
+      if (r.method === "solved") note = "This board looks already solved, so there are no tiles left to sort. Type words in if that's wrong.";
+      else if (r.method === "fallback") note = "Couldn't find the tile grid, so the whole screenshot was read. Check the words carefully.";
       else if (r.found < r.words.length) note = "Some tiles looked different (maybe selected in the game). Check those words.";
-      if (!words.some(Boolean)) note = "No words found. Type them in, or try another screenshot.";
+      if (!words.some(Boolean) && r.method !== "solved") note = "No words found. Type them in, or try another screenshot.";
     } catch (e) {
       console.error(e);
       note = "Couldn't read this screenshot. Type the words in, or try again.";

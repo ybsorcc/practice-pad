@@ -21,6 +21,10 @@ let fails = 0; const check = (ok, m) => { console.log((ok ? "  ok   " : "  FAIL 
   await p.waitForSelector(".editgrid", { timeout: 90000 });
   const w = await p.$$eval(".editgrid input", a => a.map(i => i.value).join(","));
   check(w === "PHONE,SWAY,SCRATCH,WAVE,RIGHT,CHIP,PAPER,DING,CORRECT,SCOPE,TOUCH,GREEN,MOVE,BINGO,CHANGE,REACH", "screenshot read 16/16 from the live site");
+  check(/^\d{4}-\d{2}-\d{2}$/.test(await p.inputValue("#pdate")), "puzzle date shown on Check words");
+  await p.setInputFiles("#fileIn", path.resolve(__dirname, "..", "..", "test-screenshots", "Screenshot_20261008_205957_NYT Games.jpg"));
+  await p.waitForFunction(() => document.querySelector(".editgrid input") && document.querySelector(".editgrid input").value === "CHICAGO", null, { timeout: 60000 });
+  check(await p.inputValue("#pdate") === "2026-10-08", "S20 screenshot date read from its file name");
   await ctx.setOffline(true);
   await p.goto(URL_);
   await p.setInputFiles("#fileIn", SHOT);

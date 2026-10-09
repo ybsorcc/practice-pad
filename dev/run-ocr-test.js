@@ -23,7 +23,7 @@ const { start } = require("./server");
     if (exp) exp.forEach((e, i) => { const g = got[i] || ""; if (g === e) ok++; else lines.push(`    #${i + 1}: expected "${e}", got "${g}"`); });
     const pass = exp && ok === exp.length && got.length === exp.length;
     if (!pass) allPass = false;
-    console.log(`${pass ? "PASS" : "FAIL"}  ${f}  ${exp ? ok + "/" + exp.length : "(no expected list)"}  method=${r.method} rows=${r.rows} tilesFound=${r.found} ${r.ms}ms`);
+    console.log(`${pass ? "PASS" : "FAIL"}  ${f}  ${exp ? ok + "/" + exp.length : "(no expected list)"}  method=${r.method} rows=${r.rows} tilesFound=${r.found} solvedBars=${r.bars} ${r.ms}ms`);
     if (!exp) console.log("    got:", JSON.stringify(got));
     lines.forEach(l => console.log(l));
   }

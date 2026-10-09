@@ -77,14 +77,16 @@
       if (cands.length >= 8) break;
     }
 
-    let best = null;
+    let best = null, bars = 0;
     for (const col of cands) {
-      const g = gridFor(px, W, H, col);
-      if (g && (!best || g.found > best.found)) best = g;
+      const r = gridFor(px, W, H, col);
+      bars += r.bars;
+      if (r.grid && (!best || r.grid.found > best.found)) best = r.grid;
     }
-    if (!best) return null;
+    if (!best) return { bars };
     const inv = 1 / scale;
     best.cells = best.cells.map(r => ({ x: r.x * inv, y: r.y * inv, w: r.w * inv, h: r.h * inv }));
+    best.bars = bars;
     return best;
   }
 
@@ -112,16 +114,20 @@
       const w = x1 - x0 + 1, h = y1 - y0 + 1;
       comps.push({ x: x0, y: y0, w, h, n });
     }
+    // Solved-group bars: wide, strongly coloured rectangles (yellow/green/blue/purple), not grey UI strips.
+    const saturated = Math.max(...col) - Math.min(...col) > 40;
+    const bars = saturated ? comps.filter(r => r.w > W * 0.6 && r.w / r.h > 3 && r.h > H * 0.03 && r.n / (r.w * r.h) >= 0.55).length : 0;
+    const none = { bars, grid: null };
     const minArea = W * H * 0.002, maxArea = W * H * 0.08;
     let tiles = comps.filter(r => {
       const a = r.w * r.h, ar = r.w / r.h;
       return a >= minArea && a <= maxArea && r.n / a >= 0.55 && ar > 0.6 && ar < 3;
     });
-    if (tiles.length < 3) return null;
+    if (tiles.length < 3) return none;
     const med = arr => { const s = arr.slice().sort((a, b) => a - b); return s[s.length >> 1]; };
     const mw = med(tiles.map(t => t.w)), mh = med(tiles.map(t => t.h));
     tiles = tiles.filter(t => Math.abs(t.w - mw) < mw * 0.2 && Math.abs(t.h - mh) < mh * 0.2);
-    if (tiles.length < 3) return null;
+    if (tiles.length < 3) return none;
 
     const cluster = (vals, gap) => {
       const s = vals.slice().sort((a, b) => a - b), out = [];
@@ -130,11 +136,11 @@
     };
     const cols = cluster(tiles.map(t => t.x + t.w / 2), mw / 2);
     const rows = cluster(tiles.map(t => t.y + t.h / 2), mh / 2);
-    if (cols.length !== 4 || rows.length < 1 || rows.length > 4) return null;
+    if (cols.length !== 4 || rows.length < 1 || rows.length > 4) return none;
     // Columns must be evenly spaced; rows must be contiguous with the same pitch.
     const pitch = (cols[3] - cols[0]) / 3;
-    if (cols.some((c, i) => Math.abs(c - (cols[0] + i * pitch)) > mw * 0.15)) return null;
-    for (let i = 1; i < rows.length; i++) if (Math.abs(rows[i] - rows[i - 1] - (mh + (pitch - mw))) > mh * 0.25) return null;
+    if (cols.some((c, i) => Math.abs(c - (cols[0] + i * pitch)) > mw * 0.15)) return none;
+    for (let i = 1; i < rows.length; i++) if (Math.abs(rows[i] - rows[i - 1] - (mh + (pitch - mw))) > mh * 0.25) return none;
 
     // Fill the grid; any cell without a matching tile (e.g. a selected tile) uses the inferred position.
     const cells = [];
@@ -144,8 +150,8 @@
       if (t) found++;
       cells.push(t ? { x: t.x, y: t.y, w: t.w, h: t.h } : { x: cx - mw / 2, y: ry - mh / 2, w: mw, h: mh });
     }
-    if (found < cells.length * 0.6) return null;
-    return { cells, rows: rows.length, found, color: col };
+    if (found < cells.length * 0.6) return none;
+    return { bars, grid: { cells, rows: rows.length, found, color: col } };
   }
 
   /* ---------- per-tile clean-up ---------- */
@@ -219,7 +225,10 @@
     const say = m => progress && progress(m);
     say("Opening screenshot…");
     const img = await toBitmap(blob);
-    const grid = detectTiles(img);
+    const det = detectTiles(img);
+    const grid = det.cells ? det : null;
+    // No tiles but solved-group bars: the puzzle is already finished, so there's nothing to sort.
+    if (!grid && det.bars > 0) return { words: [], method: "solved", rows: 0, bars: det.bars };
     const w = await getWorker(say);
     if (!grid) {
       say("Reading words…");
@@ -233,7 +242,7 @@
       const { data } = await w.recognize(t.canvas);
       words.push(cleanWord(data.text));
     }
-    return { words, method: "tiles", rows: grid.rows, found: grid.found };
+    return { words, method: "tiles", rows: grid.rows, found: grid.found, bars: grid.bars };
   };
   PPOCR.warmUp = () => getWorker().catch(() => {});
   PPOCR._detect = detectTiles; PPOCR._clean = cleanWord;
