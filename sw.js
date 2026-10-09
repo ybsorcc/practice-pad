@@ -31,7 +31,8 @@ self.addEventListener("fetch", e => {
         const file = form.get("image") || [...form.values()].find(v => v instanceof File);
         if (file) {
           const c = await caches.open("pp-share");
-          await c.put("shared-image", new Response(file, { headers: { "Content-Type": file.type || "image/png" } }));
+          await c.put("shared-image", new Response(file, { headers: { "Content-Type": file.type || "image/png",
+            "X-File-Name": encodeURIComponent(file.name || ""), "X-Last-Modified": String(file.lastModified || 0) } }));
         }
       } catch (err) { /* fall through to the app */ }
       return Response.redirect(new URL("./?shared=1", self.registration.scope).href, 303);

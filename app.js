@@ -15,11 +15,11 @@
   /* ---------- state ---------- */
   function blank() {
     return { screen: "start", words: [], order: [], groups: 4, locked: [false, false, false, false], labels: ["", "", "", ""],
-      cur: 0, erase: false, mode: "sure", arrange: false };
+      cur: 0, erase: false, mode: "sure", arrange: false, date: "" };
   }
-  function fresh(words) {
+  function fresh(words, date) {
     const s = blank();
-    s.screen = "board"; s.groups = words.length / 4;
+    s.screen = "board"; s.groups = words.length / 4; s.date = date || "";
     s.words = words.map((t, i) => ({ id: i, t, c: null, m: [] }));
     s.order = words.map((_, i) => i);
     return s;
@@ -29,14 +29,14 @@
       const v = JSON.parse(localStorage.getItem(KEY) || "null");
       if (v && v.s && Array.isArray(v.s.words)) {
         v.s.words.forEach(w => { if (!Array.isArray(w.m)) w.m = []; });
-        if (v.draft && Array.isArray(v.draft.words)) draft = { words: v.draft.words, shot: null };
+        if (v.draft && Array.isArray(v.draft.words)) draft = { words: v.draft.words, shot: null, date: v.draft.date || "", dateFrom: v.draft.dateFrom || "" };
         return Object.assign(blank(), v.s);
       }
     } catch (e) { /* storage unavailable or corrupt */ }
     return null;
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ s: S, draft: draft ? { words: draft.words } : null })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ s: S, draft: draft ? { words: draft.words, date: draft.date, dateFrom: draft.dateFrom } : null })); } catch (e) { /* ignore */ }
   }
   S = load() || blank();
   if (S.screen === "reading") S.screen = draft ? "confirm" : "start";
@@ -56,6 +56,25 @@
   const G = () => [0, 1, 2, 3].slice(0, S.groups);
   const count = c => S.words.filter(w => w.c === c).length;
   const dots = '<span class="dots" aria-hidden="true"><i style="background:var(--g0)"></i><i style="background:var(--g1)"></i><i style="background:var(--g2)"></i><i style="background:var(--g3)"></i></span>';
+  /* ---------- puzzle date ---------- */
+  const pad2 = n => String(n).padStart(2, "0");
+  const isoLocal = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const today = () => isoLocal(new Date());
+  function niceDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    if (!m) return "";
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  }
+  // Best guess at the day a screenshot was taken: a date in the file name (Android names screenshots
+  // Screenshot_YYYYMMDD_...), else the file's modified date, else today. Always editable on Check words.
+  function guessDate(name, lastModified) {
+    const m = /(20\d{2})[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\d|3[01])/.exec(name || "");
+    if (m) return { date: `${m[1]}-${m[2]}-${m[3]}`, from: "file name" };
+    if (lastModified && lastModified > 1e12 && lastModified <= Date.now() + 864e5) return { date: isoLocal(new Date(lastModified)), from: "file date" };
+    return { date: today(), from: "today" };
+  }
+  const dateField = (id, value) => `<label class="datefield" for="${id}"><span>Puzzle date</span><input type="date" id="${id}" value="${esc(value || "")}" max="${today()}"></label>`;
+
   const top = (title, back) => `<div class="top">${dots}<h1>${esc(title)}</h1>${back ? `<button class="iconbtn" id="back">Back</button>` : ""}</div>`;
 
   /* ---------- render ---------- */
@@ -74,7 +93,7 @@
       <button class="choice" id="cSample"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="20" cy="20" r="13"/><path d="M17 14l9 6-9 6z"/></svg>
         <div><strong>Try a sample puzzle</strong><span>Practice the controls with made-up words.</span></div></button>
     </div>
-    ${S.words.length ? `<button class="btn" id="cResume">Back to my current board</button>` : ""}
+    ${S.words.length ? `<button class="btn" id="cResume">Back to my current board${S.date ? ` · ${esc(niceDate(S.date))}` : ""}</button>` : ""}
     <p class="foot">Version ${esc(VERSION)} · Works offline · To update, close and reopen the app.</p>`;
     $("#cShot").onclick = () => $("#fileIn").click();
     $("#cPaste").onclick = () => go("paste");
@@ -94,7 +113,7 @@
       const parts = splitWords(pasteText);
       if (!parts.length) return toast("Paste some words first");
       if (parts.length > 16) toast(`Found ${parts.length} words. Kept the first 16.`);
-      setDraft(parts.slice(0, 16), null);
+      setDraft(parts.slice(0, 16), null, { date: today(), from: "today" });
       go("confirm");
     };
   }
@@ -105,10 +124,10 @@
     return parts.map(s => s.replace(/\s+/g, " ").toUpperCase());
   }
 
-  function setDraft(words, shot) {
+  function setDraft(words, shot, d) {
     const n = Math.min(16, Math.max(4, Math.ceil(words.length / 4) * 4));
     const w = words.slice(0, n); while (w.length < n) w.push("");
-    draft = { words: w, shot };
+    draft = { words: w, shot, date: d ? d.date : today(), dateFrom: d ? d.from : "today" };
   }
 
   function rReading() {
@@ -125,6 +144,8 @@
     app.innerHTML = `${top("Check words", true)}
     ${draft.shot ? `<img class="shot" src="${draft.shot}" alt="Your screenshot">` : ""}
     ${draft.note ? `<p class="note">${esc(draft.note)}</p>` : ""}
+    <div class="daterow">${dateField("pdate", draft.date)}
+      <p class="hint" id="dhint">${draft.dateFrom === "file name" ? "Taken from the screenshot's name." : draft.dateFrom === "file date" ? "Taken from the screenshot's file date. Check it." : draft.dateFrom === "today" ? "Set to today. Change it if this is an older puzzle." : ""}</p></div>
     <p class="hint">Tap any word to fix a misread. <span id="fc">${filled}</span> of ${n} filled.${n < 16 ? " Solved groups in the game are left out." : ""}</p>
     <div class="editgrid">${draft.words.map((w, i) => `<input id="w${i}" aria-label="Word ${i + 1}" value="${esc(w)}" class="${w.trim() ? "" : "bad"}" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">`).join("")}</div>
     <div class="row">
@@ -134,6 +155,7 @@
       <button class="btn solid" id="goBtn" ${filled === n ? "" : "disabled"}>Start sorting</button>
     </div>`;
     $("#back").onclick = () => go("start");
+    $("#pdate").onchange = e => { draft.date = e.target.value; draft.dateFrom = "you"; $("#dhint").textContent = ""; save(); };
     const inputs = [...app.querySelectorAll(".editgrid input")];
     inputs.forEach((inp, i) => {
       inp.oninput = () => {
@@ -148,7 +170,7 @@
     if ($("#rmRow")) $("#rmRow").onclick = () => { draft.words.splice(-4); save(); render(); };
     $("#goBtn").onclick = () => {
       hist = [];
-      S = fresh(draft.words.map(w => w.trim().replace(/\s+/g, " ").toUpperCase()));
+      S = fresh(draft.words.map(w => w.trim().replace(/\s+/g, " ").toUpperCase()), draft.date);
       draft = null; save(); render();
     };
   }
@@ -173,6 +195,7 @@
     const curOn = c => !S.erase && S.cur === c;
 
     app.innerHTML = `<div class="top">${dots}<h1>Practice Pad</h1><button class="iconbtn" id="newp">New puzzle</button></div>
+    <div class="daterow board-date">${dateField("bdate", S.date)}</div>
     <div class="board" data-arrange="${S.arrange}">
       <div class="main">
         ${lockedCs.length ? `<div class="locked">${lockedCs.map(c => `<div class="lockbar" data-c="${c}">
@@ -264,6 +287,7 @@
       toast("Colors cleared. Undo brings them back.");
     });
     $("#newp").onclick = () => go("start");
+    $("#bdate").onchange = e => { S.date = e.target.value; save(); };
   }
 
   function tapWord(w) {
@@ -284,7 +308,8 @@
   }
 
   /* ---------- screenshot reading ---------- */
-  async function readImage(blob) {
+  async function readImage(blob, meta) {
+    const d = guessDate(meta ? meta.name : blob.name, meta ? meta.lastModified : blob.lastModified);
     if (shotUrl) URL.revokeObjectURL(shotUrl);
     shotUrl = URL.createObjectURL(blob);
     reading = "Reading words…"; S.screen = "reading"; render();
@@ -300,7 +325,7 @@
       note = "Couldn't read this screenshot. Type the words in, or try again.";
     }
     reading = null;
-    setDraft(words.length ? words : [], shotUrl);
+    setDraft(words.length ? words : [], shotUrl, d);
     if (!words.length) draft.words = Array(16).fill("");
     draft.note = note;
     S.screen = "confirm"; save(); render();
@@ -321,7 +346,8 @@
       const res = await cache.match("shared-image");
       if (!res) return toast("The shared image didn't come through. Try Load screenshot.");
       await cache.delete("shared-image");
-      readImage(await res.blob());
+      const meta = { name: decodeURIComponent(res.headers.get("X-File-Name") || ""), lastModified: +res.headers.get("X-Last-Modified") || 0 };
+      readImage(await res.blob(), meta);
     } catch (e) { toast("Couldn't open the shared image."); }
   }
 
@@ -331,5 +357,5 @@
 
   render();
   checkShared();
-  window.PP = { get state() { return S; }, splitWords }; // for tests
+  window.PP = { get state() { return S; }, splitWords, guessDate }; // for tests
 })();

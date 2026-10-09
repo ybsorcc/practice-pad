@@ -123,6 +123,27 @@ const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if
   await page.waitForSelector(".editgrid", { timeout: 60000 });
   let words = await page.$$eval(".editgrid input", a => a.map(i => i.value));
   check(words.join(",") === SHOT_WORDS, "screenshot lands on Check words with 16/16 words");
+  console.log("Puzzle date");
+  const gd = (n, t) => page.evaluate(([n, t]) => PP.guessDate(n, t), [n, t]);
+  check((await gd("Screenshot_20261008_205957_NYT Games.jpg", 0)).date === "2026-10-08", "date read from an S20 screenshot name");
+  check((await gd("IMG_0844.PNG", new Date(2026, 8, 30, 21, 0).getTime())).date === "2026-09-30", "falls back to the file's modified date");
+  check((await gd("image.png", 0)).from === "today", "falls back to today");
+  check(/^\d{4}-\d{2}-\d{2}$/.test(await page.inputValue("#pdate")), "Check words shows a puzzle date after a screenshot");
+  const s20 = path.resolve(__dirname, "..", "..", "test-screenshots", "Screenshot_20261008_205957_NYT Games.jpg");
+  await page.setInputFiles("#fileIn", s20);
+  await page.waitForFunction(() => document.querySelector("#pdate") && document.querySelector(".editgrid input").value === "CHICAGO", null, { timeout: 60000 });
+  check(await page.inputValue("#pdate") === "2026-10-08", "S20 screenshot gets its date from the file name");
+  await page.fill("#pdate", "2026-10-07");
+  await btn("Start sorting").click();
+  check(await page.inputValue("#bdate") === "2026-10-07", "edited date carries onto the board");
+  await page.fill("#bdate", "2026-10-06");
+  await page.reload();
+  check(await page.inputValue("#bdate") === "2026-10-06", "board date can be changed and survives reload");
+  await btn("New puzzle").click();
+  check(/Back to my current board · \w+/.test(await page.locator("#cResume").textContent()), "start screen shows the current board's date");
+  await page.setInputFiles("#fileIn", SHOT);
+  await page.waitForSelector(".editgrid", { timeout: 60000 });
+
   await ctx.setOffline(true);
   await page.reload();
   check(await page.getByText("Load screenshot").count() === 1 || await page.locator(".editgrid").count() === 1, "app loads in airplane mode");
@@ -155,7 +176,7 @@ const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if
   const demo = (() => {
     const WS = ["PIKE", "AIR", "HEEL", "CARP", "STEEL", "PERCH", "GRIPE", "LACE", "BASS", "MOAN", "TONGUE", "LEAD", "TROUT", "SOLE", "BEEF", "ELECTRIC"];
     const s = { screen: "board", words: WS.map((t, i) => ({ id: i, t, c: null, m: [] })), order: WS.map((_, i) => i), groups: 4,
-      locked: [false, false, false, false], labels: ["Ways to complain", "___ guitar", "Fish", ""], cur: 3, erase: false, mode: "sure", arrange: false };
+      locked: [false, false, false, false], labels: ["Ways to complain", "___ guitar", "Fish", ""], cur: 3, erase: false, mode: "sure", arrange: false, date: "2026-10-08" };
     const set = (w, c) => { s.words.find(x => x.t === w).c = c; };
     ["CARP", "GRIPE", "MOAN", "BEEF"].forEach(w => set(w, 0)); ["AIR", "STEEL", "LEAD", "ELECTRIC", "BASS"].forEach(w => set(w, 1));
     ["PIKE", "PERCH", "TROUT"].forEach(w => set(w, 2));
