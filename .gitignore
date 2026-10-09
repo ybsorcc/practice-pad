@@ -1,0 +1,12 @@
+# Dev tooling only — the app itself has no build step.
+dev/node_modules/
+dev/shots/
+# Test screenshots are kept outside the repo (../test-screenshots) — they're NYT game content.
+test-screenshots/
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.env
+.env.*

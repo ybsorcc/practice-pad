@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><title>OCR test</title>
+<script src="../ocr.js"></script>
+<body style="font:14px system-ui"><pre id="out">ready</pre>
+<script>
+PPOCR.base = new URL("../vendor/tesseract/", location.href).href;
+window.runOne = async (url) => {
+  const blob = await (await fetch(url)).blob();
+  const t0 = performance.now();
+  const r = await PPOCR.read(blob, m => document.getElementById("out").textContent = m);
+  r.ms = Math.round(performance.now() - t0);
+  return r;
+};
+</script>

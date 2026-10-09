@@ -1,0 +1,190 @@
+// End-to-end checks of Practice Pad in Chromium, plus layout screenshots (light/dark, phone/iPad).
+// Usage: node run-app-test.js      Screenshots go to dev/shots/ (git-ignored).
+const fs = require("fs"), path = require("path");
+const { chromium } = require("playwright");
+const { start } = require("./server");
+const BASE = "http://127.0.0.1:8767/practice-pad/";
+const SHOT = path.resolve(__dirname, "..", "..", "test-screenshots", "IMG_0844.PNG");
+const SHOT_WORDS = "PHONE,SWAY,SCRATCH,WAVE,RIGHT,CHIP,PAPER,DING,CORRECT,SCOPE,TOUCH,GREEN,MOVE,BINGO,CHANGE,REACH";
+let fails = 0;
+const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if (!ok) fails++; };
+
+(async () => {
+  const srv = await start(8767);
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  page.on("pageerror", e => { console.log("  [pageerror]", e.message); fails++; });
+  const st = () => page.evaluate(() => JSON.parse(JSON.stringify(PP.state)));
+  const word = t => page.locator(".tile", { hasText: new RegExp("^" + t + "$") });
+  const pick = n => page.locator(".sw[data-pick]", { hasText: n }).click();
+  const W = (s, t) => s.words.find(w => w.t === t);
+  const btn = n => page.getByRole("button", { name: n, exact: true });
+
+  console.log("Board rules");
+  await page.goto(BASE);
+  await page.evaluate(() => localStorage.clear()); await page.reload();
+  await page.getByText("Try a sample puzzle").click();
+  await pick("Yellow");
+  for (const w of ["CARP", "GRIPE", "MOAN", "BEEF"]) await word(w).click();
+  let s = await st();
+  check(s.words.filter(w => w.c === 0).length === 4, "sure mode colours 4 words yellow");
+  check((await page.locator(".status").textContent()).includes("4 of 16 placed"), "status counts placed words");
+  await word("BEEF").click();
+  check(W(await st(), "BEEF").c === null, "tapping a word in the current colour clears it");
+  await word("BEEF").click();
+  await btn("Maybe").click();
+  await pick("Blue"); await word("CARP").click(); await word("BASS").click();
+  await pick("Green"); await word("BASS").click();
+  s = await st();
+  check(JSON.stringify(W(s, "BASS").m) === "[1,2]", "maybe mode: a word can carry several maybes");
+  check(W(s, "CARP").c === 0 && W(s, "CARP").m.includes(2), "maybe keeps the sure colour");
+  check(await page.locator(".tile .flags i").count() === 3, "maybe flags drawn on tiles");
+  await btn("Sure").click();
+  await pick("Blue"); await word("CARP").click();
+  s = await st();
+  check(W(s, "CARP").c === 2 && !W(s, "CARP").m.includes(2), "sure in a colour removes that colour's maybe");
+  await pick("Yellow"); await word("CARP").click();
+  await page.locator(".sw.erase").click(); await word("BASS").click();
+  s = await st();
+  check(W(s, "BASS").c === null && W(s, "BASS").m.length === 0, "eraser clears sure colour and maybes");
+  await pick("Yellow"); await word("PIKE").click();
+  check(await page.locator(".tile.over").count() === 5, "group over 4 gets dashed outlines");
+  check(await page.locator(".status.warn").count() === 1, "over-4 warning in status");
+  await word("PIKE").click();
+  await btn("Maybe").click();
+  await word("TROUT").click();
+  await btn("Sure").click();
+  await btn("Show groups").click();
+  check(await page.locator(".chip.maybe").count() === 1, "groups panel shows maybe chips");
+  await page.locator('[data-lock="0"]').click();
+  s = await st();
+  check(s.locked[0] && !s.words.some(w => w.m.includes(0)), "lock clears every maybe for that colour");
+  check(s.cur !== 0, "current colour moves off the locked group");
+  await btn("Show board").click();
+  check(await page.locator(".lockbar").count() === 1 && await page.locator(".tile").count() === 12, "locked group moves to a bar above the grid");
+  const lockedOrder = (await st()).order.slice();
+  await btn("Shuffle").click();
+  s = await st();
+  const lockedIds = s.words.filter(w => w.c === 0).map(w => w.id);
+  check(lockedIds.every(id => s.order.indexOf(id) === lockedOrder.indexOf(id)), "shuffle leaves locked words in place");
+  await btn("Undo").click();
+  check(JSON.stringify((await st()).order) === JSON.stringify(lockedOrder), "undo reverses shuffle");
+  await btn("Unlock").click();
+  check(!(await st()).locked[0], "unlock");
+  await btn("Undo").click();
+  await btn("Undo").click();
+  s = await st();
+  check(!s.locked[0] && W(s, "TROUT").m.includes(0), "multi-step undo restores lock state and maybes");
+  await page.fill("#lab1", "Guitars");
+  await page.locator("#lab1").blur();
+  await btn("Undo").click();
+  check((await st()).labels[1] === "", "label edits are undoable");
+
+  console.log("Persistence");
+  s = await st();
+  await page.reload();
+  check(JSON.stringify(await st()) === JSON.stringify(s), "board survives reload (words, order, colours, maybes, locks, mode)");
+  await btn("Clear colors").click();
+  check((await st()).words.every(w => w.c === null && !w.m.length), "clear colours");
+  await btn("Undo").click();
+  check((await st()).words.filter(w => w.c === 0).length === 4, "clear colours is undoable");
+
+  console.log("Paste and partial boards");
+  const sp = t => page.evaluate(t => PP.splitWords(t), t);
+  check(JSON.stringify(await sp("ice cream\nfudge, sprinkle;cone\tsyrup")) === '["ICE CREAM","FUDGE","SPRINKLE","CONE","SYRUP"]', "split on newlines, commas, semicolons, tabs; keep multi-word lines");
+  check((await sp("a b c d")).length === 4, "single line splits on spaces");
+  await btn("New puzzle").click();
+  check(await page.getByText("Back to my current board").count() === 1, "start offers 'Back to my current board'");
+  await page.getByText("Paste words").click();
+  await page.fill("#pasteBox", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve");
+  await btn("Check words").click();
+  check(await page.locator(".editgrid input").count() === 12, "12 words → 12 cells");
+  await btn("Start sorting").click();
+  check(await page.locator(".palette .sw[data-c]").count() === 3, "partial board (12) shows three colours");
+  await pick("Yellow"); for (const w of ["ONE", "TWO", "THREE", "FOUR"]) await word(w).click();
+  await pick("Green"); for (const w of ["FIVE", "SIX", "SEVEN", "EIGHT"]) await word(w).click();
+  await pick("Blue"); for (const w of ["NINE", "TEN", "ELEVEN", "TWELVE"]) await word(w).click();
+  check((await page.locator(".status").textContent()).startsWith("All three groups are set"), "partial board 'all set' status");
+  await btn("New puzzle").click();
+  await page.getByText("Paste words").click();
+  await page.fill("#pasteBox", "a, b, c, d, e");
+  await btn("Check words").click();
+  check(await page.locator(".editgrid input.bad").count() === 3 && await page.locator("#goBtn").isDisabled(), "blank cells outlined; Start disabled until filled");
+  await btn("Remove last row").click();
+  check(!(await page.locator("#goBtn").isDisabled()), "removing the blank row leaves a valid 4-word board");
+
+  console.log("Screenshot reading + offline");
+  await page.goto(BASE);
+  await page.waitForFunction(() => navigator.serviceWorker.ready.then(() => true));
+  await page.reload();
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 10000 });
+  await page.setInputFiles("#fileIn", SHOT);
+  await page.waitForSelector(".editgrid", { timeout: 60000 });
+  let words = await page.$$eval(".editgrid input", a => a.map(i => i.value));
+  check(words.join(",") === SHOT_WORDS, "screenshot lands on Check words with 16/16 words");
+  await ctx.setOffline(true);
+  await page.reload();
+  check(await page.getByText("Load screenshot").count() === 1 || await page.locator(".editgrid").count() === 1, "app loads in airplane mode");
+  await page.goto(BASE);
+  await page.setInputFiles("#fileIn", SHOT);
+  await page.waitForSelector(".editgrid", { timeout: 60000 });
+  words = await page.$$eval(".editgrid input", a => a.map(i => i.value));
+  check(words.join(",") === SHOT_WORDS, "screenshot reading works offline after first use");
+  const fontsOk = await page.evaluate(async () => { await document.fonts.load("700 20px 'Barlow Condensed'"); return document.fonts.check("700 20px 'Barlow Condensed'"); });
+  check(fontsOk, "self-hosted fonts load offline");
+  await ctx.setOffline(false);
+
+  console.log("Android share target");
+  await page.goto(BASE); await page.evaluate(() => localStorage.clear()); await page.reload();
+  check(await page.locator(".editgrid").count() === 0, "(share test starts on the start screen)");
+  await page.evaluate(() => {
+    const f = document.createElement("form"); f.method = "POST"; f.action = "share-target"; f.enctype = "multipart/form-data"; f.id = "shareForm";
+    const i = document.createElement("input"); i.type = "file"; i.name = "image"; i.id = "shareFile"; f.appendChild(i); document.body.appendChild(f);
+  });
+  await page.setInputFiles("#shareFile", SHOT);
+  await page.evaluate(() => document.getElementById("shareForm").submit());
+  await page.waitForSelector(".editgrid", { timeout: 60000 });
+  words = await page.$$eval(".editgrid input", a => a.map(i => i.value));
+  const search = await page.evaluate(() => location.href);
+  check(words.join(",") === SHOT_WORDS && !search.includes("?"), "shared image opens on Check words  (" + search + " " + words.slice(0, 2) + ")");
+
+  console.log("Layout screenshots");
+  const outDir = path.join(__dirname, "shots"); fs.mkdirSync(outDir, { recursive: true });
+  await page.screenshot({ path: path.join(outDir, "check-words-390.png"), fullPage: true });
+  const demo = (() => {
+    const WS = ["PIKE", "AIR", "HEEL", "CARP", "STEEL", "PERCH", "GRIPE", "LACE", "BASS", "MOAN", "TONGUE", "LEAD", "TROUT", "SOLE", "BEEF", "ELECTRIC"];
+    const s = { screen: "board", words: WS.map((t, i) => ({ id: i, t, c: null, m: [] })), order: WS.map((_, i) => i), groups: 4,
+      locked: [false, false, false, false], labels: ["Ways to complain", "___ guitar", "Fish", ""], cur: 3, erase: false, mode: "sure", arrange: false };
+    const set = (w, c) => { s.words.find(x => x.t === w).c = c; };
+    ["CARP", "GRIPE", "MOAN", "BEEF"].forEach(w => set(w, 0)); ["AIR", "STEEL", "LEAD", "ELECTRIC", "BASS"].forEach(w => set(w, 1));
+    ["PIKE", "PERCH", "TROUT"].forEach(w => set(w, 2));
+    s.words.find(x => x.t === "SOLE").m = [2, 3]; s.words.find(x => x.t === "BASS").m = [2];
+    return { s, draft: null };
+  })();
+  const locked = JSON.parse(JSON.stringify(demo));
+  ["AIR", "STEEL", "LEAD", "ELECTRIC", "BASS"].forEach(t => { locked.s.words.find(x => x.t === t).c = t === "BASS" ? null : 1; });
+  locked.s.words.find(x => x.t === "BASS").m = [2];
+  locked.s.locked[1] = true; locked.s.locked[0] = true;
+  for (const scheme of ["light", "dark"]) {
+    for (const [w, h] of [[360, 780], [412, 915], [1024, 1366], [1366, 1024]]) {
+      const c2 = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: scheme });
+      const p2 = await c2.newPage();
+      p2.on("pageerror", e => { console.log("  [pageerror]", e.message); fails++; });
+      const shot = async name => { await p2.evaluate(() => document.fonts.ready); await p2.screenshot({ path: path.join(outDir, `${name}-${w}x${h}-${scheme}.png`), fullPage: true }); };
+      await p2.goto(BASE); await p2.evaluate(v => localStorage.setItem("practice-pad-v1", JSON.stringify(v)), demo); await p2.reload();
+      await shot("board");
+      check(!(await p2.evaluate(() => document.documentElement.scrollWidth > innerWidth)), `no horizontal scroll at ${w}px ${scheme}`);
+      const panel = await p2.locator(".groups").isVisible();
+      check(w >= 820 ? panel : !panel, `groups panel ${w >= 820 ? "always visible" : "behind the toggle"} at ${w}px`);
+      if (w < 820) { await p2.getByRole("button", { name: "Show groups", exact: true }).click(); await shot("groups"); }
+      await p2.evaluate(v => localStorage.setItem("practice-pad-v1", JSON.stringify(v)), locked); await p2.reload();
+      await shot("locked");
+      await p2.getByRole("button", { name: "New puzzle", exact: true }).click(); await shot("start");
+      await c2.close();
+    }
+  }
+  await browser.close(); srv.close();
+  console.log(fails ? `\n${fails} check(s) failed` : "\nAll checks passed");
+  process.exit(fails ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });
