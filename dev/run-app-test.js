@@ -95,7 +95,7 @@ const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if
   check(JSON.stringify(await sp("ice cream\nfudge, sprinkle;cone\tsyrup")) === '["ICE CREAM","FUDGE","SPRINKLE","CONE","SYRUP"]', "split on newlines, commas, semicolons, tabs; keep multi-word lines");
   check((await sp("a b c d")).length === 4, "single line splits on spaces");
   await btn("New puzzle").click();
-  check(await page.getByText("Back to my current board").count() === 1, "start offers 'Back to my current board'");
+  check((await page.evaluate(() => PP.tabs)).length === 2, "New puzzle opens a second tab and keeps the first board");
   await page.getByText("Paste words").click();
   await page.fill("#pasteBox", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve");
   await btn("Check words").click();
@@ -113,6 +113,51 @@ const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if
   check(await page.locator(".editgrid input.bad").count() === 3 && await page.locator("#goBtn").isDisabled(), "blank cells outlined; Start disabled until filled");
   await btn("Remove last row").click();
   check(!(await page.locator("#goBtn").isDisabled()), "removing the blank row leaves a valid 4-word board");
+
+  console.log("Tabs");
+  const tabs = () => page.evaluate(() => PP.tabs);
+  const names = async () => (await tabs()).map(t => t.name).join(",");
+  const tabBtn = n => page.locator(".tabbtn", { hasText: n });
+  const pasteBoard = async (date, words = "w1 w2 w3 w4") => {
+    await page.getByText("Paste words").click(); await page.fill("#pasteBox", words); await btn("Check words").click();
+    await page.fill("#pdate", date); await page.locator("#pdate").dispatchEvent("change");
+  };
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem("practice-pad-v1", JSON.stringify({ s: {
+    screen: "board", words: ["A", "B", "C", "D"].map((t, i) => ({ id: i, t, c: i ? null : 0, m: [] })), order: [0, 1, 2, 3], groups: 1,
+    locked: [false, false, false, false], labels: ["", "", "", ""], cur: 0, erase: false, mode: "sure", arrange: false, date: "2026-10-08" }, draft: null })); });
+  await page.reload();
+  check(await names() === "Oct 8" && W(await st(), "A").c === 0, "a 1.1 board carries over as the first tab");
+  await btn("New puzzle").click();
+  check(await names() === "New,Oct 8" && (await tabs())[0].active, "new tab opens at the left and is active");
+  await btn("New puzzle").click();
+  check((await tabs()).length === 2, "+ reuses an empty tab instead of adding another");
+  await pasteBoard("2026-10-10"); await btn("Start sorting").click();
+  await btn("New puzzle").click(); await pasteBoard("2026-10-09"); await btn("Start sorting").click();
+  check(await names() === "Oct 10,Oct 9,Oct 8", "tabs are ordered by puzzle date, newest on the left");
+  await tabBtn("Oct 8").click();
+  check(await names() === "Oct 10,Oct 9,Oct 8" && JSON.stringify((await st()).words.map(w => w.t)) === '["A","B","C","D"]', "tapping a tab switches boards without reordering");
+  await pick("Yellow"); await word("B").click();
+  await tabBtn("Oct 10").click(); await tabBtn("Oct 8").click();
+  check(W(await st(), "B").c === 0 && await btn("Undo").isEnabled(), "each tab keeps its own undo");
+  await btn("Undo").click();
+  check(W(await st(), "B").c === null, "undo still works after switching tabs");
+  await btn("New puzzle").click(); await pasteBoard("2026-10-09");
+  check(await page.locator(".note.dupe").count() === 1, "Check words warns when that puzzle date is already open");
+  await btn("Start sorting").click();
+  check(await names() === "Oct 10,Oct 9,Oct 8" && (await tabs())[1].active, "Start sorting on an open date switches to that board, no duplicate");
+  await page.fill("#bdate", "2026-10-10"); await page.locator("#bdate").dispatchEvent("change");
+  check((await st()).date === "2026-10-09", "a board's date can't be changed to one another tab has");
+  await page.fill("#bdate", "2026-10-11"); await page.locator("#bdate").dispatchEvent("change");
+  check(await names() === "Oct 11,Oct 10,Oct 8", "changing a board's date moves its tab into place");
+  await page.reload();
+  check(await names() === "Oct 11,Oct 10,Oct 8" && (await tabs())[0].active, "tabs and the active tab survive reload");
+  await page.locator(".tclose").click();
+  check(await names() === "Oct 10,Oct 8" && (await tabs())[0].active, "closing a tab lands on its neighbour");
+  await page.locator("#toastAct").click();
+  check(await names() === "Oct 11,Oct 10,Oct 8" && (await tabs())[0].active && JSON.stringify((await st()).words.map(w => w.t)) === '["W1","W2","W3","W4"]', "Undo brings a closed tab back");
+  for (let i = 0; i < 3; i++) await page.locator(".tclose").click();
+  check(await names() === "New" && await page.getByText("Load screenshot").count() === 1, "closing the last tab leaves one new tab on the start screen");
+  await page.evaluate(() => localStorage.clear()); await page.reload();
 
   console.log("Screenshot reading + offline");
   await page.goto(BASE);
@@ -139,10 +184,15 @@ const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if
   await page.fill("#bdate", "2026-10-06");
   await page.reload();
   check(await page.inputValue("#bdate") === "2026-10-06", "board date can be changed and survives reload");
+  check((await page.evaluate(() => PP.tabs)).some(t => t.name === "Oct 6"), "the board's tab shows its date");
   await btn("New puzzle").click();
-  check(/Back to my current board · \w+/.test(await page.locator("#cResume").textContent()), "start screen shows the current board's date");
   await page.setInputFiles("#fileIn", SHOT);
-  await page.waitForSelector(".editgrid", { timeout: 60000 });
+  await tabBtn("Oct 6").click();
+  await page.waitForFunction(() => PP.tabs.some(t => t.screen === "confirm"), null, { timeout: 60000 });
+  check((await st()).date === "2026-10-06" && (await tabs()).find(t => t.active).name === "Oct 6", "a screenshot keeps reading in its own tab while you work in another");
+  await tabBtn("New").click();
+  words = await page.$$eval(".editgrid input", a => a.map(i => i.value));
+  check(words.join(",") === SHOT_WORDS, "the words land in the tab that loaded the screenshot");
 
   await ctx.setOffline(true);
   await page.reload();
@@ -193,15 +243,23 @@ const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if
       const p2 = await c2.newPage();
       p2.on("pageerror", e => { console.log("  [pageerror]", e.message); fails++; });
       const shot = async name => { await p2.evaluate(() => document.fonts.ready); await p2.screenshot({ path: path.join(outDir, `${name}-${w}x${h}-${scheme}.png`), fullPage: true }); };
-      await p2.goto(BASE); await p2.evaluate(v => localStorage.setItem("practice-pad-v1", JSON.stringify(v)), demo); await p2.reload();
+      const put = v => p2.evaluate(v => { localStorage.removeItem("practice-pad-v2"); localStorage.setItem("practice-pad-v1", JSON.stringify(v)); }, v);
+      await p2.goto(BASE); await put(demo); await p2.reload();
       await shot("board");
       check(!(await p2.evaluate(() => document.documentElement.scrollWidth > innerWidth)), `no horizontal scroll at ${w}px ${scheme}`);
       const panel = await p2.locator(".groups").isVisible();
       check(w >= 820 ? panel : !panel, `groups panel ${w >= 820 ? "always visible" : "behind the toggle"} at ${w}px`);
       if (w < 820) { await p2.getByRole("button", { name: "Show groups", exact: true }).click(); await shot("groups"); }
-      await p2.evaluate(v => localStorage.setItem("practice-pad-v1", JSON.stringify(v)), locked); await p2.reload();
+      await put(locked); await p2.reload();
       await shot("locked");
       await p2.getByRole("button", { name: "New puzzle", exact: true }).click(); await shot("start");
+      for (const d of ["2026-10-07", "2026-10-06", "2026-10-05"]) {
+        await p2.getByText("Paste words").click(); await p2.fill("#pasteBox", "w1 w2 w3 w4"); await p2.getByRole("button", { name: "Check words", exact: true }).click();
+        await p2.fill("#pdate", d); await p2.locator("#pdate").dispatchEvent("change"); await p2.getByRole("button", { name: "Start sorting", exact: true }).click();
+        await p2.getByRole("button", { name: "New puzzle", exact: true }).click();
+      }
+      await p2.locator(".tabbtn", { hasText: "Oct 8" }).click(); await shot("tabs");
+      check(!(await p2.evaluate(() => document.documentElement.scrollWidth > innerWidth)), `5 tabs scroll inside the strip, not the page, at ${w}px ${scheme}`);
       await c2.close();
     }
   }

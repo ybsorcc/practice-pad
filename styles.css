@@ -169,8 +169,35 @@ textarea{width:100%;min-height:200px;border:1px solid var(--line);border-radius:
   .arrange-btn{display:none}
 }
 
+/* Tabs: one per puzzle, newest puzzle date on the left. The active tab joins the card below it. */
+.tabs{display:flex;align-items:flex-end;gap:4px;padding:0 12px;margin-bottom:-1px;position:relative;z-index:1;
+  overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
+.tabs::-webkit-scrollbar{display:none}
+.tabs:empty{display:none}
+.newtab{position:sticky;left:0;z-index:2;flex:none;width:40px;height:38px;margin-bottom:4px;border:1.5px dashed var(--line);border-radius:10px;
+  background:var(--surface);box-shadow:6px 0 6px -2px var(--paper);font-size:22px;font-weight:500;line-height:1;display:grid;place-items:center}
+.tab{flex:none;display:flex;align-items:center;height:40px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;
+  background:var(--paper);color:var(--ink-soft);box-shadow:inset 0 -1px 0 var(--line)}
+.tab[data-on="true"]{height:46px;background:var(--surface);color:var(--ink);box-shadow:none}
+.tabbtn{display:flex;align-items:center;gap:7px;height:100%;border:none;background:none;color:inherit;padding:0 12px;
+  font-family:var(--f-word);font-weight:600;font-size:16px;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap}
+.tab[data-on="true"] .tabbtn{padding-right:2px}
+.tab.fresh .tname{font-style:italic}
+.tabbtn .wk{font-family:var(--f-ui);font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink-soft)}
+.tdots{display:grid;grid-template-columns:repeat(2,7px);gap:2px}
+.tdots i{width:7px;height:7px;border-radius:2px;display:block;box-shadow:inset 0 0 0 1.5px var(--line)}
+.tdots i[data-c]{box-shadow:none}
+.tdots i[data-c="0"]{background:var(--g0)} .tdots i[data-c="1"]{background:var(--g1)} .tdots i[data-c="2"]{background:var(--g2)} .tdots i[data-c="3"]{background:var(--g3)}
+.tclose{width:34px;height:34px;margin-right:4px;border:none;border-radius:50%;background:transparent;color:var(--ink-soft);font-size:19px;line-height:1;display:grid;place-items:center}
+.tclose:hover,.tclose:active{background:var(--paper);color:var(--ink)}
+.app{border-top-left-radius:10px}
+.note.dupe{border-left-color:var(--g2);color:var(--ink)}
+.note.dupe button{border:none;background:none;padding:0;font-weight:600;text-decoration:underline;color:var(--focus);font-size:inherit}
+
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);
   padding:9px 16px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;z-index:10}
 .toast.show{opacity:1}
+.toast.act{pointer-events:auto;display:flex;gap:14px;align-items:center}
+.toast button{border:none;background:none;color:var(--paper);font-weight:700;text-decoration:underline;padding:4px 0;min-height:32px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation-duration:2s!important}}
